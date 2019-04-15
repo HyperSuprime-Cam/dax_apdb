@@ -150,6 +150,10 @@ class PpdbConfig(pexConfig.Config):
     sql_echo = Field(dtype=bool,
                      doc="If True then pass SQLAlchemy echo option.",
                      default=False)
+    use_pandas = Field(dtype=bool,
+                       doc="Use pandas dataframes as the input/output format "
+                           "instead of afw.",
+                        default=False)
     dia_object_index = ChoiceField(dtype=str,
                                    doc="Indexing mode for DiaObject table",
                                    allowed={'baseline': "Index defined in baseline schema",
@@ -411,83 +415,11 @@ class Ppdb(object):
         # execute select
         with Timer('DiaObject select', self.config.timer):
             with self._engine.begin() as conn:
-                res = conn.execute(query)
-                objects = self._convertResult(res, "DiaObject")
-        _LOG.debug("found %s DiaObjects", len(objects))
-        return objects
-
-    def getDiaObjectsPandas(self, pixel_ranges):
-        """Returns catalog of DiaObject instances from given region.
-
-        Objects are searched based on pixelization index and region is
-        determined by the set of indices. There is no assumption on a
-        particular type of index, client is responsible for consistency
-        when calculating pixelization indices.
-
-        This method returns :doc:`/modules/lsst.afw.table/index` catalog with schema determined by
-        the schema of PPDB table. Re-mapping of the column names is done for
-        some columns (based on column map passed to constructor) but types
-        or units are not changed.
-
-        Returns only the last version of each DiaObject.
-
-        Parameters
-        ----------
-        pixel_ranges : `list` of `tuple`
-            Sequence of ranges, range is a tuple (minPixelID, maxPixelID).
-            This defines set of pixel indices to be included in result.
-
-        Returns
-        -------
-        catalog : `lsst.afw.table.SourceCatalog`
-            Catalog contaning DiaObject records.
-        """
-
-        # decide what columns we need
-        if self.config.dia_object_index == 'last_object_table':
-            table = self._schema.objects_last
-        else:
-            table = self._schema.objects
-        if not self.config.dia_object_columns:
-            query = table.select()
-        else:
-            columns = [table.c[col] for col in self.config.dia_object_columns]
-            query = sql.select(columns)
-
-        if self.config.diaobject_index_hint:
-            val = self.config.diaobject_index_hint
-            query = query.with_hint(table, 'index_rs_asc(%(name)s "{}")'.format(val))
-        if self.config.dynamic_sampling_hint > 0:
-            val = self.config.dynamic_sampling_hint
-            query = query.with_hint(table, 'dynamic_sampling(%(name)s {})'.format(val))
-        if self.config.cardinality_hint > 0:
-            val = self.config.cardinality_hint
-            query = query.with_hint(table, 'FIRST_ROWS_1 cardinality(%(name)s {})'.format(val))
-
-        # build selection
-        exprlist = []
-        for low, upper in pixel_ranges:
-            upper -= 1
-            if low == upper:
-                exprlist.append(table.c.pixelId == low)
-            else:
-                exprlist.append(sql.expression.between(table.c.pixelId, low, upper))
-        query = query.where(sql.expression.or_(*exprlist))
-
-        # select latest version of objects
-        if self.config.dia_object_index != 'last_object_table':
-            query = query.where(table.c.validityEnd == None)  # noqa: E711
-
-        _LOG.debug("query: %s", query)
-
-        if self.config.explain:
-            # run the same query with explain
-            self._explain(query, self._engine)
-
-        # execute select
-        with Timer('DiaObject select', self.config.timer):
-            with self._engine.begin() as conn:
-                objects = pandas.read_sql_query(query, conn)
+                if self.use_pandas:
+                    objects = pandas.read_sql_query(query, conn)
+                else:
+                    res = conn.execute(query)
+                    objects = self._convertResult(res, "DiaObject")
         _LOG.debug("found %s DiaObjects", len(objects))
         return objects
 
@@ -539,8 +471,11 @@ class Ppdb(object):
         # execute select
         with Timer('DiaSource select', self.config.timer):
             with _ansi_session(self._engine) as conn:
-                res = conn.execute(query)
-                sources = self._convertResult(res, "DiaSource")
+                if self.use_pandas:
+                    sources = pandas.read_sql_query(query, conn)
+                else:
+                    res = conn.execute(query)
+                    sources = self._convertResult(res, "DiaSource")
         _LOG.debug("found %s DiaSources", len(sources))
         return sources
 
@@ -588,8 +523,15 @@ class Ppdb(object):
                     query += '"diaObjectId" IN (' + ids + ') '
 
                     # execute select
-                    res = conn.execute(sql.text(query))
-                    sources = self._convertResult(res, "DiaSource", sources)
+                    if self.use_pandas:
+                        df = pandas.read_sql_query(sql.txt(query), conn)
+                        if df is None:
+                            sources = df
+                        else:
+                            sources.append(df)
+                    else:
+                        res = conn.execute(sql.text(query))
+                        sources = self._convertResult(res, "DiaSource", sources)
 
         _LOG.debug("found %s DiaSources", len(sources))
         return sources
@@ -641,8 +583,15 @@ class Ppdb(object):
                     query += '"diaObjectId" IN (' + ids + ') '
 
                     # execute select
-                    res = conn.execute(sql.text(query))
-                    sources = self._convertResult(res, "DiaForcedSource", sources)
+                    if self.use_pandas:
+                        df = pandas.read_sql_query(sql.text(query), conn)
+                        if sources is None:
+                            sources = df
+                        else:
+                            sources.append(df)
+                    else:
+                        res = conn.execute(sql.text(query))
+                        sources = self._convertResult(res, "DiaForcedSource", sources)
 
         _LOG.debug("found %s DiaForcedSources", len(sources))
         return sources
@@ -703,6 +652,8 @@ class Ppdb(object):
                     _LOG.debug("deleted %s objects", res.rowcount)
 
                 extra_columns = dict(lastNonForcedSource=dt)
+                if self.use_pandas:
+                    self._storeObjectsPandas(objs, conn, "DiaObjectLast")
                 self._storeObjectsAfw(objs, conn, table, "DiaObjectLast",
                                       replace=do_replace,
                                       extra_columns=extra_columns)
@@ -759,8 +710,11 @@ class Ppdb(object):
         # everything to be done in single transaction
         with _ansi_session(self._engine) as conn:
 
-            table = self._schema.sources
-            self._storeObjectsAfw(sources, conn, table, "DiaSource")
+            if isinstance(sources, pandas.DataFrame):
+                sources.to_sql("DiaSource", conn, method="multi")
+            else:
+                table = self._schema.sources
+                self._storeObjectsAfw(sources, conn, table, "DiaSource")
 
     def storeDiaForcedSources(self, sources):
         """Store a set of DIAForcedSources from current visit.
@@ -785,8 +739,11 @@ class Ppdb(object):
         # everything to be done in single transaction
         with _ansi_session(self._engine) as conn:
 
-            table = self._schema.forcedSources
-            self._storeObjectsAfw(sources, conn, table, "DiaForcedSource")
+            if isinstance(sources, pandas.DataFrame):
+                sources.to_sql("DiaForcedSource", conn, method="multi")
+            else:
+                table = self._schema.forcedSources
+                self._storeObjectsAfw(sources, conn, table, "DiaForcedSource")
 
     def dailyJob(self):
         """Implement daily activities like cleanup/vacuum.
