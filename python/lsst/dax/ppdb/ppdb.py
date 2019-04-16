@@ -621,7 +621,11 @@ class Ppdb(object):
             Time of the visit
         """
 
-        ids = sorted([obj['id'] for obj in objs])
+        import pdb; pdb.set_trace()
+        if self.config.use_pandas:
+            ids = sorted(objs['diaObjectId'])
+        else:
+            ids = sorted([obj['id'] for obj in objs])
         _LOG.debug("first object ID: %d", ids[0])
 
         # NOTE: workaround for sqlite, need this here to avoid
@@ -684,11 +688,7 @@ class Ppdb(object):
                                  validityEnd=None)
             if self.config.use_pandas:
                 for key in extra_columns:
-                    value = extra_columns[key]
-                    if value is None:
-                        objs[key] = value
-                    else:
-                        objs[key] = value.utcfromtimestamp(value)
+                    objs[key] = extra_columns[key]
                 objs.to_sql("DiaObject", conn, if_exists='append',
                             index=False, method="multi")
             else:
