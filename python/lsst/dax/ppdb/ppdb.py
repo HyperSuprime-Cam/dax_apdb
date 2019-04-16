@@ -153,7 +153,7 @@ class PpdbConfig(pexConfig.Config):
     use_pandas = Field(dtype=bool,
                        doc="Use pandas dataframes as the input/output format "
                            "instead of afw.",
-                        default=False)
+                       default=False)
     dia_object_index = ChoiceField(dtype=str,
                                    doc="Indexing mode for DiaObject table",
                                    allowed={'baseline': "Index defined in baseline schema",
@@ -415,7 +415,7 @@ class Ppdb(object):
         # execute select
         with Timer('DiaObject select', self.config.timer):
             with self._engine.begin() as conn:
-                if self.use_pandas:
+                if self.config.use_pandas:
                     objects = pandas.read_sql_query(query, conn)
                 else:
                     res = conn.execute(query)
@@ -471,7 +471,7 @@ class Ppdb(object):
         # execute select
         with Timer('DiaSource select', self.config.timer):
             with _ansi_session(self._engine) as conn:
-                if self.use_pandas:
+                if self.config.use_pandas:
                     sources = pandas.read_sql_query(query, conn)
                 else:
                     res = conn.execute(query)
@@ -523,9 +523,9 @@ class Ppdb(object):
                     query += '"diaObjectId" IN (' + ids + ') '
 
                     # execute select
-                    if self.use_pandas:
-                        df = pandas.read_sql_query(sql.txt(query), conn)
-                        if df is None:
+                    if self.config.use_pandas:
+                        df = pandas.read_sql_query(sql.text(query), conn)
+                        if sources is None:
                             sources = df
                         else:
                             sources.append(df)
@@ -583,7 +583,7 @@ class Ppdb(object):
                     query += '"diaObjectId" IN (' + ids + ') '
 
                     # execute select
-                    if self.use_pandas:
+                    if self.config.use_pandas:
                         df = pandas.read_sql_query(sql.text(query), conn)
                         if sources is None:
                             sources = df
@@ -652,7 +652,7 @@ class Ppdb(object):
                     _LOG.debug("deleted %s objects", res.rowcount)
 
                 extra_columns = dict(lastNonForcedSource=dt)
-                if self.use_pandas:
+                if self.config.use_pandas:
                     self._storeObjectsPandas(objs, conn, "DiaObjectLast")
                 self._storeObjectsAfw(objs, conn, table, "DiaObjectLast",
                                       replace=do_replace,
@@ -711,7 +711,7 @@ class Ppdb(object):
         with _ansi_session(self._engine) as conn:
 
             if isinstance(sources, pandas.DataFrame):
-                sources.to_sql("DiaSource", conn, method="multi")
+                sources.to_sql("DiaSource", conn, if_exists='append', index=False, method="multi")
             else:
                 table = self._schema.sources
                 self._storeObjectsAfw(sources, conn, table, "DiaSource")
@@ -740,7 +740,7 @@ class Ppdb(object):
         with _ansi_session(self._engine) as conn:
 
             if isinstance(sources, pandas.DataFrame):
-                sources.to_sql("DiaForcedSource", conn, method="multi")
+                sources.to_sql("DiaForcedSource", conn, if_exists='append', method="multi", index=False)
             else:
                 table = self._schema.forcedSources
                 self._storeObjectsAfw(sources, conn, table, "DiaForcedSource")
