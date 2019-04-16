@@ -652,8 +652,6 @@ class Ppdb(object):
                     _LOG.debug("deleted %s objects", res.rowcount)
 
                 extra_columns = dict(lastNonForcedSource=dt)
-                if self.config.use_pandas:
-                    self._storeObjectsPandas(objs, conn, "DiaObjectLast")
                 self._storeObjectsAfw(objs, conn, table, "DiaObjectLast",
                                       replace=do_replace,
                                       extra_columns=extra_columns)
@@ -684,8 +682,18 @@ class Ppdb(object):
                 table = self._schema.objects
             extra_columns = dict(lastNonForcedSource=dt, validityStart=dt,
                                  validityEnd=None)
-            self._storeObjectsAfw(objs, conn, table, "DiaObject",
-                                  extra_columns=extra_columns)
+            if self.config.use_pandas:
+                for key in extra_columns:
+                    value = extra_columns[key]
+                    if value is None:
+                        objs[key] = value
+                    else:
+                        objs[key] = value.utcfromtimestamp(value)
+                objs.to_sql("DiaObject", conn, if_exists='append',
+                            index=False, method="multi")
+            else:
+                self._storeObjectsAfw(objs, conn, table, "DiaObject",
+                                      extra_columns=extra_columns)
 
     def storeDiaSources(self, sources):
         """Store catalog of DIASources from current visit.
