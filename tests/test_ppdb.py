@@ -148,7 +148,7 @@ class PpdbTestCase(unittest.TestCase):
         self._assertCatalog(res, 0)
 
         res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
-        self._assertCatalog(res, 0)
+        self._assertCatalog(res, 0, type=pandas.DataFrame)
 
         # get sources by region
         res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time)
@@ -193,14 +193,14 @@ class PpdbTestCase(unittest.TestCase):
         self._assertCatalog(res, 0)
 
         res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
-        self._assertCatalog(res, 0)
+        self._assertCatalog(res, 0, type=pandas.DataFrame)
 
         # get sources by region
         res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time)
         self._assertCatalog(res, 0)
 
         res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time, return_pandas=True)
-        self._assertCatalog(res, 0)
+        self._assertCatalog(res, 0, type=pandas.DataFrame)
 
         # get sources by object ID, empty object list, should return None
         res = ppdb.getDiaSources([], visit_time)
@@ -214,7 +214,7 @@ class PpdbTestCase(unittest.TestCase):
         self._assertCatalog(res, 0)
 
         res = ppdb.getDiaSources([1, 2, 3], visit_time, return_pandas=True)
-        self._assertCatalog(res, 0)
+        self._assertCatalog(res, 0, type=pandas.DataFrame)
 
         # get forced sources by object ID, empty object list
         res = ppdb.getDiaForcedSources([], visit_time)
@@ -228,7 +228,7 @@ class PpdbTestCase(unittest.TestCase):
         self._assertCatalog(res, 0)
 
         res = ppdb.getDiaForcedSources([1, 2, 3], visit_time, return_pandas=True)
-        self._assertCatalog(res, 0)
+        self._assertCatalog(res, 0, type=pandas.DataFrame)
 
     def test_emptyGetsObjectLast(self):
         """Test for getting DiaObjects from empty database using DiaObjectLast
