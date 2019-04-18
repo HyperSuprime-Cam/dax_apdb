@@ -79,21 +79,20 @@ def _makeObjectCatalogPandas(pixel_ranges):
     The number of created records will be equal number of ranges (one object
     per pixel range). Coordinates of the created objects are not usable.
     """
-    # make pandas DataFrame catalog
-    df = pandas.DataFrame(columns=["diaObjectId", "pixelId", "ra", "decl"])
-
     # make small bunch of records, one entry per one pixel range,
     # we do not care about coordinates here, in current implementation
     # they are not used in any query
     v3d = Vector3d(1., 1., -1.)
     sp = SpherePoint(v3d)
+    data_list = []
     for oid, (start, end) in enumerate(pixel_ranges):
         tmp_dict = {"diaObjectId": oid,
                     "pixelId": start,
-                    "ra": sp.getRa(),
-                    "decl": sp.getDec()}
-        df.append(tmp_dict)
+                    "ra": sp.getRa().asDegrees(),
+                    "decl": sp.getDec().asDegrees()}
+        data_list.append(tmp_dict)
 
+    df = pandas.DataFrame(data=data_list)
     return df
 
 
@@ -251,7 +250,7 @@ class PpdbTestCase(unittest.TestCase):
         self._assertCatalog(res, 0)
 
         res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
-        self._assertCatalog(res, 0, pandas.DataFrame)
+        self._assertCatalog(res, 0, type=pandas.DataFrame)
 
     def test_storeObjectsBaseline(self):
         """Store and retrieve DiaObjects."""
@@ -278,11 +277,18 @@ class PpdbTestCase(unittest.TestCase):
         # make afw catalog with Objects
         catalog = _makeObjectCatalogPandas(pixel_ranges)
 
+        # don't care about sources.
+        config = PpdbConfig(db_url="sqlite:///",
+                            isolation_level="READ_UNCOMMITTED",
+                            dia_object_index="baseline")
+        ppdb = Ppdb(config)
+        ppdb.makeSchema()
+
         # store catalog
         ppdb.storeDiaObjects(catalog, visit_time)
 
         # read it back and check sizes
-        res = ppdb.getDiaObjects(pixel_ranges)
+        res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
         self._assertCatalog(res, len(catalog), pandas.DataFrame)
 
     def test_storeObjectsLast(self):
@@ -307,6 +313,23 @@ class PpdbTestCase(unittest.TestCase):
         # read it back and check sizes
         res = ppdb.getDiaObjects(pixel_ranges)
         self._assertCatalog(res, len(catalog))
+
+        # don't care about sources.
+        ppdb = Ppdb(config)
+        ppdb.makeSchema()
+
+        pixel_ranges = _makePixelRanges()
+        visit_time = datetime.datetime.now()
+
+        # make afw catalog with Objects
+        catalog = _makeObjectCatalogPandas(pixel_ranges)
+
+        # store catalog
+        ppdb.storeDiaObjects(catalog, visit_time)
+
+        # read it back and check sizes
+        res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
+        self._assertCatalog(res, len(catalog), type=pandas.DataFrame)
 
     def test_storeSources(self):
         """Store and retrieve DiaSources."""
