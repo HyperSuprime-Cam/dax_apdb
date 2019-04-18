@@ -73,7 +73,7 @@ def _makeObjectCatalog(pixel_ranges):
     return catalog
 
 
-def _makeObjectPandasCatalog(pixel_ranges):
+def _makeObjectCatalogPandas(pixel_ranges):
     """make a catalog containing a bunch of DiaObjects inside pixel envelope.
 
     The number of created records will be equal number of ranges (one object
@@ -250,6 +250,9 @@ class PpdbTestCase(unittest.TestCase):
         res = ppdb.getDiaObjects(pixel_ranges)
         self._assertCatalog(res, 0)
 
+        res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
+        self._assertCatalog(res, 0, pandas.DataFrame)
+
     def test_storeObjectsBaseline(self):
         """Store and retrieve DiaObjects."""
         # don't care about sources.
@@ -271,6 +274,16 @@ class PpdbTestCase(unittest.TestCase):
         # read it back and check sizes
         res = ppdb.getDiaObjects(pixel_ranges)
         self._assertCatalog(res, len(catalog))
+
+        # make afw catalog with Objects
+        catalog = _makeObjectCatalogPandas(pixel_ranges)
+
+        # store catalog
+        ppdb.storeDiaObjects(catalog, visit_time)
+
+        # read it back and check sizes
+        res = ppdb.getDiaObjects(pixel_ranges)
+        self._assertCatalog(res, len(catalog), pandas.DataFrame)
 
     def test_storeObjectsLast(self):
         """Store and retrieve DiaObjects using DiaObjectLast table."""
