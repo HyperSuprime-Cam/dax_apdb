@@ -23,6 +23,7 @@
 """
 
 import datetime
+import pandas
 import unittest
 
 import lsst.afw.table as afwTable
@@ -70,6 +71,30 @@ def _makeObjectCatalog(pixel_ranges):
         record.set("coord_dec", sp.getDec())
 
     return catalog
+
+
+def _makeObjectPandasCatalog(pixel_ranges):
+    """make a catalog containing a bunch of DiaObjects inside pixel envelope.
+
+    The number of created records will be equal number of ranges (one object
+    per pixel range). Coordinates of the created objects are not usable.
+    """
+    # make pandas DataFrame catalog
+    df = pandas.DataFrame(columns=["diaObjectId", "pixelId", "ra", "decl"])
+
+    # make small bunch of records, one entry per one pixel range,
+    # we do not care about coordinates here, in current implementation
+    # they are not used in any query
+    v3d = Vector3d(1., 1., -1.)
+    sp = SpherePoint(v3d)
+    for oid, (start, end) in enumerate(pixel_ranges):
+        tmp_dict = {"diaObjectId": oid,
+                    "pixelId": start,
+                    "ra": sp.getRa(),
+                    "decl": sp.getDec()}
+        df.append(tmp_dict)
+
+    return df
 
 
 class PpdbTestCase(unittest.TestCase):
@@ -122,16 +147,28 @@ class PpdbTestCase(unittest.TestCase):
         res = ppdb.getDiaObjects(pixel_ranges)
         self._assertCatalog(res, 0)
 
+        res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
+        self._assertCatalog(res, 0)
+
         # get sources by region
         res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time)
+        self.assertIs(res, None)
+
+        res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time, return_pandas=True)
         self.assertIs(res, None)
 
         # get sources by object ID, empty object list
         res = ppdb.getDiaSources([], visit_time)
         self.assertIs(res, None)
 
+        res = ppdb.getDiaSources([], visit_time, return_pandas=True)
+        self.assertIs(res, None)
+
         # get forced sources by object ID, empty object list
         res = ppdb.getDiaForcedSources([], visit_time)
+        self.assertIs(res, None)
+
+        res = ppdb.getDiaForcedSources([], visit_time, return_pandas=True)
         self.assertIs(res, None)
 
     def test_emptyGetsBaseline(self):
@@ -155,24 +192,42 @@ class PpdbTestCase(unittest.TestCase):
         res = ppdb.getDiaObjects(pixel_ranges)
         self._assertCatalog(res, 0)
 
+        res = ppdb.getDiaObjects(pixel_ranges, return_pandas=True)
+        self._assertCatalog(res, 0)
+
         # get sources by region
         res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time)
+        self._assertCatalog(res, 0)
+
+        res = ppdb.getDiaSourcesInRegion(pixel_ranges, visit_time, return_pandas=True)
         self._assertCatalog(res, 0)
 
         # get sources by object ID, empty object list, should return None
         res = ppdb.getDiaSources([], visit_time)
         self.assertIs(res, None)
 
+        res = ppdb.getDiaSources([], visit_time, return_pandas=True)
+        self.assertIs(res, None)
+
         # get sources by object ID, non-empty object list
         res = ppdb.getDiaSources([1, 2, 3], visit_time)
+        self._assertCatalog(res, 0)
+
+        res = ppdb.getDiaSources([1, 2, 3], visit_time, return_pandas=True)
         self._assertCatalog(res, 0)
 
         # get forced sources by object ID, empty object list
         res = ppdb.getDiaForcedSources([], visit_time)
         self.assertIs(res, None)
 
+        res = ppdb.getDiaForcedSources([], visit_time, return_pandas=True)
+        self.assertIs(res, None)
+
         # get sources by object ID, non-empty object list
         res = ppdb.getDiaForcedSources([1, 2, 3], visit_time)
+        self._assertCatalog(res, 0)
+
+        res = ppdb.getDiaForcedSources([1, 2, 3], visit_time, return_pandas=True)
         self._assertCatalog(res, 0)
 
     def test_emptyGetsObjectLast(self):
