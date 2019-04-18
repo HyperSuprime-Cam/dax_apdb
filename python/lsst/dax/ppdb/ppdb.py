@@ -150,10 +150,6 @@ class PpdbConfig(pexConfig.Config):
     sql_echo = Field(dtype=bool,
                      doc="If True then pass SQLAlchemy echo option.",
                      default=False)
-    use_pandas = Field(dtype=bool,
-                       doc="Use pandas dataframes as the input/output format "
-                           "instead of afw.",
-                       default=False)
     dia_object_index = ChoiceField(dtype=str,
                                    doc="Indexing mode for DiaObject table",
                                    allowed={'baseline': "Index defined in baseline schema",
@@ -344,7 +340,7 @@ class Ppdb(object):
 
         return res
 
-    def getDiaObjects(self, pixel_ranges):
+    def getDiaObjects(self, pixel_ranges, return_pandas=False):
         """Returns catalog of DiaObject instances from given region.
 
         Objects are searched based on pixelization index and region is
@@ -364,11 +360,14 @@ class Ppdb(object):
         pixel_ranges : `list` of `tuple`
             Sequence of ranges, range is a tuple (minPixelID, maxPixelID).
             This defines set of pixel indices to be included in result.
+        return_pandas : `bool`
+            Return a `pandas.DataFrame` instead of
+            `lsst.afw.table.SourceCatalog`.
 
         Returns
         -------
-        catalog : `lsst.afw.table.SourceCatalog`
-            Catalog contaning DiaObject records.
+        catalog : `lsst.afw.table.SourceCatalog` or `pandas.DataFrame`
+            Catalog containing DiaObject records.
         """
 
         # decide what columns we need
@@ -415,7 +414,7 @@ class Ppdb(object):
         # execute select
         with Timer('DiaObject select', self.config.timer):
             with self._engine.begin() as conn:
-                if self.config.use_pandas:
+                if return_pandas:
                     objects = pandas.read_sql_query(query, conn)
                 else:
                     res = conn.execute(query)
@@ -423,7 +422,7 @@ class Ppdb(object):
         _LOG.debug("found %s DiaObjects", len(objects))
         return objects
 
-    def getDiaSourcesInRegion(self, pixel_ranges, dt):
+    def getDiaSourcesInRegion(self, pixel_ranges, dt, return_pandas=False):
         """Returns catalog of DiaSource instances from given region.
 
         Sources are searched based on pixelization index and region is
@@ -443,11 +442,14 @@ class Ppdb(object):
             This defines set of pixel indices to be included in result.
         dt : `datetime.datetime`
             Time of the current visit
+        return_pandas : `bool`
+            Return a `pandas.DataFrame` instead of
+            `lsst.afw.table.SourceCatalog`.
 
         Returns
         -------
-        catalog : `lsst.afw.table.SourceCatalog` or `None`
-            Catalog contaning DiaSource records. `None` is returned if
+        catalog : `lsst.afw.table.SourceCatalog`, `pandas.DataFrame`, or `None`
+            Catalog containing DiaSource records. `None` is returned if
             ``read_sources_months`` configuration parameter is set to 0.
         """
 
@@ -471,7 +473,7 @@ class Ppdb(object):
         # execute select
         with Timer('DiaSource select', self.config.timer):
             with _ansi_session(self._engine) as conn:
-                if self.config.use_pandas:
+                if return_pandas:
                     sources = pandas.read_sql_query(query, conn)
                 else:
                     res = conn.execute(query)
@@ -479,7 +481,7 @@ class Ppdb(object):
         _LOG.debug("found %s DiaSources", len(sources))
         return sources
 
-    def getDiaSources(self, object_ids, dt):
+    def getDiaSources(self, object_ids, dt, return_pandas=False):
         """Returns catalog of DiaSource instances given set of DiaObject IDs.
 
         This method returns :doc:`/modules/lsst.afw.table/index` catalog with schema determined by
@@ -493,10 +495,14 @@ class Ppdb(object):
             Collection of DiaObject IDs
         dt : `datetime.datetime`
             Time of the current visit
+        return_pandas : `bool`
+            Return a `pandas.DataFrame` instead of
+            `lsst.afw.table.SourceCatalog`.
+
 
         Returns
         -------
-        catalog : `lsst.afw.table.SourceCatalog` or `None`
+        catalog : `lsst.afw.table.SourceCatalog`, `pandas.DataFrame`, or `None`
             Catalog contaning DiaSource records. `None` is returned if
             ``read_sources_months`` configuration parameter is set to 0 or
             when ``object_ids`` is empty.
@@ -523,7 +529,7 @@ class Ppdb(object):
                     query += '"diaObjectId" IN (' + ids + ') '
 
                     # execute select
-                    if self.config.use_pandas:
+                    if return_pandas:
                         df = pandas.read_sql_query(sql.text(query), conn)
                         if sources is None:
                             sources = df
@@ -536,7 +542,7 @@ class Ppdb(object):
         _LOG.debug("found %s DiaSources", len(sources))
         return sources
 
-    def getDiaForcedSources(self, object_ids, dt):
+    def getDiaForcedSources(self, object_ids, dt, return_panads=False):
         """Returns catalog of DiaForcedSource instances matching given
         DiaObjects.
 
@@ -551,6 +557,9 @@ class Ppdb(object):
             Collection of DiaObject IDs
         dt : `datetime.datetime`
             Time of the current visit
+        return_pandas : `bool`
+            Return a `pandas.DataFrame` instead of
+            `lsst.afw.table.SourceCatalog`.
 
         Returns
         -------
@@ -583,7 +592,7 @@ class Ppdb(object):
                     query += '"diaObjectId" IN (' + ids + ') '
 
                     # execute select
-                    if self.config.use_pandas:
+                    if return_panads:
                         df = pandas.read_sql_query(sql.text(query), conn)
                         if sources is None:
                             sources = df
@@ -621,8 +630,7 @@ class Ppdb(object):
             Time of the visit
         """
 
-        import pdb; pdb.set_trace()
-        if self.config.use_pandas:
+        if isinstance(objs, pandas.DataFrame):
             ids = sorted(objs['diaObjectId'])
         else:
             ids = sorted([obj['id'] for obj in objs])
@@ -656,9 +664,14 @@ class Ppdb(object):
                     _LOG.debug("deleted %s objects", res.rowcount)
 
                 extra_columns = dict(lastNonForcedSource=dt)
-                self._storeObjectsAfw(objs, conn, table, "DiaObjectLast",
-                                      replace=do_replace,
-                                      extra_columns=extra_columns)
+                if isinstance(objs, pandas.DataFrame):
+                    objs['lastNonForcedSource'] = dt
+                    objs.to_sql("DiaObjectLast", conn, if_exists='append',
+                                index=False, method="multi")
+                else:
+                    self._storeObjectsAfw(objs, conn, table, "DiaObjectLast",
+                                          replace=do_replace,
+                                          extra_columns=extra_columns)
 
             else:
 
@@ -686,7 +699,7 @@ class Ppdb(object):
                 table = self._schema.objects
             extra_columns = dict(lastNonForcedSource=dt, validityStart=dt,
                                  validityEnd=None)
-            if self.config.use_pandas:
+            if isinstance(objs, pandas.DataFrame):
                 for key in extra_columns:
                     objs[key] = extra_columns[key]
                 objs.to_sql("DiaObject", conn, if_exists='append',
